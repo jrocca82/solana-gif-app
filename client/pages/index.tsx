@@ -3,24 +3,109 @@ import Head from "next/head";
 import { Flex, Button, Text, Heading, Image, Input } from "@chakra-ui/react";
 import { useState, useEffect, ChangeEvent } from "react";
 import { TEST_GIFS } from "../constants/testGifs";
+import {
+	Connection,
+	PublicKey,
+	clusterApiUrl,
+	ConfirmOptions,
+} from "@solana/web3.js";
+import { Program, AnchorProvider, web3 } from "@project-serum/anchor";
 
 const Home: NextPage = () => {
 	const [walletAddress, setWalletAddress] = useState<string>();
 	const [inputValue, setInputValue] = useState("");
-	const [gifList, setGifList] = useState<string[]>([]);
+	const [gifList, setGifList] = useState([]);
+
+	const { SystemProgram, Keypair } = web3;
+	let baseAccount = Keypair.generate();
+	const programID = new PublicKey(
+		"R9HPKyMYuypB6VyHJKVKegjDnKCpUHYfNPHfa7W5ovv"
+	);
+	const network = clusterApiUrl("devnet");
+	const opts: ConfirmOptions = {
+		preflightCommitment: "processed",
+		maxRetries: 100
+	};
 
 	const onInputChange = (event: ChangeEvent<HTMLInputElement>) => {
 		setInputValue(event.target.value);
 	};
 
-	const sendGif = async () => {
-		if (inputValue.length > 0) {
-			console.log("Gif link:", inputValue);
-			setGifList([...gifList, inputValue]);
-			setInputValue("");
-		} else {
-			console.log("Empty input. Try again.");
+	const getProvider = () => {
+		const connection = new Connection(network, opts.preflightCommitment);
+		const provider = new AnchorProvider(
+			connection,
+			//@ts-ignore
+			window.solana,
+			opts
+		);
+		return provider;
+	};
+
+	const createGifAccount = async () => {
+		try {
+			const provider = getProvider();
+			const program = await getProgram();
+
+			if(program) {
+				console.log("ping",await program.methods
+				.initialize()
+				.accounts({
+					baseAccount: baseAccount.publicKey,
+					user: provider.wallet.publicKey,
+					systemProgram: SystemProgram.programId,
+				})
+				.signers([baseAccount])
+				.rpc());
+				await program.methods
+				.startStuffOff()
+				.accounts({
+					baseAccount: baseAccount.publicKey,
+					user: provider.wallet.publicKey,
+					systemProgram: SystemProgram.programId,
+				})
+				.signers([baseAccount])
+				.rpc();
+				console.log(
+					"Created a new BaseAccount w/ address:",
+					baseAccount.publicKey.toString()
+				);
+				await getGifList();
+			}
+		} catch (error) {
+			console.log("Error creating BaseAccount account:", error);
 		}
+	};
+
+	const getProgram = async () => {
+		const idl = await Program.fetchIdl(programID, getProvider());
+		if (idl) {
+			return new Program(idl, programID, getProvider());
+		}
+	};
+
+	const getGifList = async () => {
+		try {
+			const program = await getProgram();
+			const account = await program?.account.baseAccount.fetch(
+				baseAccount.publicKey
+			);
+
+			console.log("Got the account", account, typeof account?.gifList);
+			//setGifList(account.gifList);
+		} catch (error) {
+			console.log("Error in getGifList: ", error);
+		}
+	};
+
+	const sendGif = async () => {
+		// if (inputValue.length > 0) {
+		// 	console.log("Gif link:", inputValue);
+		// 	setGifList([...gifList, inputValue]);
+		// 	setInputValue("");
+		// } else {
+		// 	console.log("Empty input. Try again.");
+		// }
 	};
 
 	const checkIfWalletIsConnected = async () => {
@@ -62,11 +147,7 @@ const Home: NextPage = () => {
 	useEffect(() => {
 		if (walletAddress) {
 			console.log("Fetching GIF list...");
-
-			// Call Solana program here.
-
-			// Set state
-			setGifList(TEST_GIFS);
+			getGifList();
 		}
 	}, [walletAddress]);
 
@@ -102,7 +183,7 @@ const Home: NextPage = () => {
 							justify="center"
 							align="center"
 						>
-							<Heading>Submit a GIF:</Heading>
+							{gifList.length > 0 ? <><Heading>Submit a GIF:</Heading>
 							<Input
 								padding="10px"
 								borderRadius="20px"
@@ -123,11 +204,12 @@ const Home: NextPage = () => {
 								onClick={sendGif}
 							>
 								Submit
-							</Button>
+							</Button></> : <Button onClick={createGifAccount}>Do One-Time Initialization For GIF Program Account</Button>}
+							
 						</Flex>
 						<Heading>Your GIFs:</Heading>
 						<Flex flexWrap="wrap" justify="center">
-							{TEST_GIFS.map((gif) => (
+							{gifList.map((gif) => (
 								<Flex key={gif} margin="20px">
 									<Image src={gif} alt={gif} />
 								</Flex>
